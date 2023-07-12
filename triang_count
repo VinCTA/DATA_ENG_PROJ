@@ -1,0 +1,141 @@
+# !pip install pyspark
+
+import numpy as np
+from pyspark import SparkContext, SparkConf
+import sys
+import os
+import random as rand
+from collections import defaultdict
+import time
+
+
+def CountTriangles_colors(edges):
+    # Create a defaultdict to store the neighbors of each vertex
+    neighbors = defaultdict(set)
+    for edge in edges:
+        u, v = edge
+        neighbors[u].add(v)
+        neighbors[v].add(u)
+
+    # Initialize the triangle count to zero
+    triangle_count = 0
+
+    # Iterate over each vertex in the graph.
+    # To avoid duplicates, we count a triangle <u, v, w> only if u<v<w
+    for u in neighbors:
+        # Iterate over each pair of neighbors of u
+        for v in neighbors[u]:
+            if v > u:
+                for w in neighbors[v]:
+                    # If w is also a neighbor of u, then we have a triangle
+                    if w > v and w in neighbors[u]:
+                        triangle_count += 1
+    # Return the total number of triangles in the graph
+    return triangle_count
+
+
+def CountTriangles_partitions(partition):
+    # Create a defaultdict to store the neighbors of each vertex
+    neighbors = defaultdict(set)
+    for edge in partition:
+        u, v = edge
+        neighbors[u].add(v)
+        neighbors[v].add(u)
+
+    # Initialize the triangle count to zero
+    triangle_count = 0
+
+    # Iterate over each vertex in the graph.
+    # To avoid duplicates, we count a triangle <u, v, w> only if u<v<w
+    for u in neighbors:
+        # Iterate over each pair of neighbors of u
+        for v in neighbors[u]:
+            if v > u:
+                for w in neighbors[v]:
+                    # If w is also a neighbor of u, then we have a triangle
+                    if w > v and w in neighbors[u]:
+                        triangle_count += 1
+
+    # Yield the triangle count for this partition
+    yield triangle_count
+
+
+def MR_ApproxTCwithNodeColors(edges, C):
+  # The following lines defines the hash function hC, which assigns a color
+  # between (0,C-1) to each vertex
+  p = 8191
+  a = np.random.randint(low=1, high=p-1)
+  b = np.random.randint(low=0, high=p-1)
+  def hC(u):
+    return ((a * u +b) % p) % C
+
+  # Round 1
+  # The first round partitions each edge into the subsets
+  E = [None] * C
+  for i in range(C):
+    # Filling the subsets of edges
+    E[i] = edges.filter(lambda e: (hC(e[0]) == hC(e[1])) and (hC(e[0]) == i)).cache()
+        # Pyspark cache() method is used to cache the intermediate results of the transformation
+        # so that other transformation runs on top of cached will perform faster.
+
+  t_per_partition = []
+  for i in range(C):
+    t_per_partition.append(CountTriangles_colors(E[i].collect()))
+  t_final = (C ** 2) * sum(t_per_partition)
+  return t_final
+
+
+def MR_ApproxTCwithSparkPartitions(edges):
+    # Round 1: count the number of triangles in each partition
+    t_per_partition = edges.mapPartitions(CountTriangles_partitions)
+
+    # Round 2: compute the total number of triangles
+    t_final = (C ** 2) * t_per_partition.reduce(lambda x, y: x + y)
+
+    return t_final
+
+
+if __name__ == '__main__':
+    conf = SparkConf().setAppName('HW1')
+    sc = SparkContext(conf=conf)
+
+    # Read parameters C and R
+    C = int(sys.argv[1])
+    R = int(sys.argv[2])
+
+    # Read the input graph
+    rawData = sc.textFile(sys.argv[3])
+    # Transform into an RDD of edges, partitioned into C partitions, and cached
+    edges = rawData.map(lambda x: tuple(map(int, x.split(',')))).repartition(C).cache()
+
+    # Print the name of the file, C, R, and the number of edges of the graph
+    print(f"Dataset = {sys.argv[3]}")
+    print(f"Number of edges: {edges.count()}")
+    print(f"Number of Colors: {C}")
+    print(f"Number of Repetitions: {R}")
+
+
+    # Run MR_ApproxTCwithNodeColors R times to get R independent estimates t_final of the number of triangles in the input graph
+    t_final_values = []
+    start_time = time.time()
+    for i in range(R):
+        t_final_values.append(MR_ApproxTCwithNodeColors(edges, C))
+    end_time = time.time()
+
+    # Print the median of the R estimates returned by MR_ApproxTCwithNodeColors and the average running time of MR_ApproxTCwithNodeColors over the R runs
+    print('Approximation through node coloring')
+    print(f"- Number of triangles = {np.median(t_final_values)}")
+    print(f"- Running time = {(end_time - start_time)/R*1000} ms")
+
+    # Run MR_ApproxTCwithSparkPartitions to get an estimate tfinal of the number of triangles in the input graph
+    start_time = time.time()
+    t_final = MR_ApproxTCwithSparkPartitions(edges)
+    end_time = time.time()
+
+    # Print the estimate returned by MR_ApproxTCwithSparkPartitions and its running time
+    print('Approximation through Spark partitions')
+    print(f"- Number of triangles = {t_final}")
+    print(f"- Running time = {(end_time - start_time)*1000} ms")
+
+    # Stop the SparkContext
+    sc.stop()
