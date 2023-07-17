@@ -16,7 +16,7 @@ import mysql.connector
 # In[55]:
 
 
-cnx = mysql.connector.connect(user='root', password='Vaffanculo99.', host='localhost', database='myfirst_proj')
+cnx = mysql.connector.connect(user='root', password='**********', host='localhost', database='myfirst_proj')
 
 
 # In[56]:
@@ -82,7 +82,7 @@ import mysql.connector
 import pandas as pd
 
 # Connessione al database MySQL
-cnx = mysql.connector.connect(user='root', password='Vaffanculo99.', host='localhost', database='myfirst_proj')
+cnx = mysql.connector.connect(user='root', password='***********', host='localhost', database='myfirst_proj')
 
 # Esecuzione della query per ottenere i dati dalla tabella
 query = "SELECT * FROM sti3iudentss"
